@@ -103,6 +103,9 @@ export function FilterPanel({
       (c) => c.value || ["is_empty", "is_not_empty"].includes(c.operator)
     )
 
+    // Ensure we have at least one valid condition before creating
+    if (validConditions.length === 0) return
+
     const newFilter = createFilter(newFilterName.trim(), validConditions, newFilterMatchMode)
     setFilters([...filters, newFilter])
     setIsCreatingNew(false)

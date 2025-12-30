@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -33,6 +33,16 @@ export function RejectionEmailsComponent({ startup }: RejectionEmailsProps) {
   const [rejectionMessages, setRejectionMessages] = useState<RejectionMessages | null>(null)
   const [isGeneratingRejection, setIsGeneratingRejection] = useState(false)
   const [copiedRejectionType, setCopiedRejectionType] = useState<string | null>(null)
+  const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const handleGenerateRejection = async () => {
     setIsGeneratingRejection(true)
@@ -64,7 +74,11 @@ export function RejectionEmailsComponent({ startup }: RejectionEmailsProps) {
   const handleCopyRejectionMessage = (type: string, content: string) => {
     navigator.clipboard.writeText(content)
     setCopiedRejectionType(type)
-    setTimeout(() => setCopiedRejectionType(null), 2000)
+    // Clear previous timeout if exists
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current)
+    }
+    copyTimeoutRef.current = setTimeout(() => setCopiedRejectionType(null), 2000)
   }
 
   return (

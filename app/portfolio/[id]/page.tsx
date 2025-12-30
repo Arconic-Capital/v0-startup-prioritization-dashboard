@@ -41,7 +41,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
-  ArrowLeft,
   Building2,
   DollarSign,
   TrendingUp,
@@ -65,6 +64,8 @@ import {
   AlertTriangle,
   Clock,
 } from "lucide-react"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { BackButton } from "@/components/back-button"
 import type {
   PortfolioInvestment,
   FollowOnInvestment,
@@ -436,12 +437,13 @@ export default function PortfolioDetailPage({
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/portfolio">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </Link>
+          <BackButton returnTo="portfolio" />
+          <Breadcrumb
+            items={[
+              { label: "Portfolio", href: "/portfolio" },
+              { label: investment.startup?.name || "Company" },
+            ]}
+          />
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold">

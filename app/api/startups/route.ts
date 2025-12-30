@@ -9,13 +9,19 @@ export async function GET(request: NextRequest) {
     const userId = session?.user?.id
 
     const searchParams = request.nextUrl.searchParams
-    const page = Number.parseInt(searchParams.get("page") || "1")
-    const limit = Number.parseInt(searchParams.get("limit") || "50")
+    const parsedPage = Number.parseInt(searchParams.get("page") || "1")
+    const parsedLimit = Number.parseInt(searchParams.get("limit") || "50")
+    // Validate numeric params - use defaults if NaN or invalid
+    const page = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage
+    const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 50 : Math.min(parsedLimit, 10000)
     const sector = searchParams.get("sector")
     const pipelineStage = searchParams.get("pipelineStage")
     const search = searchParams.get("search")
-    const minScore = searchParams.get("minScore") ? Number.parseFloat(searchParams.get("minScore")!) : undefined
-    const maxScore = searchParams.get("maxScore") ? Number.parseFloat(searchParams.get("maxScore")!) : undefined
+    const parsedMinScore = searchParams.get("minScore") ? Number.parseFloat(searchParams.get("minScore")!) : undefined
+    const parsedMaxScore = searchParams.get("maxScore") ? Number.parseFloat(searchParams.get("maxScore")!) : undefined
+    // Validate score params - ignore if NaN
+    const minScore = parsedMinScore !== undefined && !Number.isNaN(parsedMinScore) ? parsedMinScore : undefined
+    const maxScore = parsedMaxScore !== undefined && !Number.isNaN(parsedMaxScore) ? parsedMaxScore : undefined
 
     const skip = (page - 1) * limit
 
@@ -48,12 +54,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Get total count for pagination
-    const total = await prisma.startup.count({ where })
-
-    // Get paginated results
-    // For large datasets, only select fields needed for list view
-    const selectFields = limit > 1000 ? {
+    // ALWAYS use select for list view - only load fields needed for table/kanban display
+    // This dramatically improves performance by excluding large JSON fields
+    const selectFields = {
       id: true,
       name: true,
       sector: true,
@@ -65,42 +68,26 @@ export async function GET(request: NextRequest) {
       pipelineStage: true,
       aiScores: true,
       companyInfo: true, // Include for LinkedIn links
-      // Exclude large JSON fields and relations for performance
-    } : undefined
-
-    // Build query options based on whether we're using select or include
-    // Note: Prisma doesn't allow using both select and include together
-    let queryOptions: any = {
-      where,
-      orderBy: { rank: "asc" },
-      skip,
-      take: limit,
+      marketInfo: true, // Include for industry/subIndustry filtering
+      // Exclude large JSON fields: investmentScorecard, investmentMemo, investmentDecision,
+      // legalDiligence, documents, customData - these are loaded only when viewing a specific startup
     }
 
-    if (selectFields) {
-      // For large datasets (limit > 1000), use select for minimal fields
-      queryOptions.select = selectFields
-    } else {
-      // For smaller datasets (limit <= 1000), use include to load relations
-      queryOptions.include = {
-        thresholdIssues: true,
-        // Optimize: Load shortlist status in same query using LEFT JOIN
-        ...(userId && {
-          shortlistedBy: {
-            where: { userId },
-            select: { userId: true },
-          },
-        }),
-      }
-    }
+    // Run count and main query in PARALLEL for better performance
+    const [total, startups] = await Promise.all([
+      prisma.startup.count({ where }),
+      prisma.startup.findMany({
+        where,
+        orderBy: { rank: "asc" },
+        skip,
+        take: limit,
+        select: selectFields,
+      }),
+    ])
 
-    const startups = await prisma.startup.findMany(queryOptions)
-
-    // For large datasets, we need a separate query for shortlist data
-    // For small datasets, it's already included via the join above
+    // Get shortlist data in a separate efficient query
     let startupsWithShortlist
-    if (selectFields && userId) {
-      // Large dataset path: use the original 2-query approach
+    if (userId && startups.length > 0) {
       const shortlistIds = await prisma.userShortlist.findMany({
         where: {
           userId,
@@ -115,11 +102,9 @@ export async function GET(request: NextRequest) {
         shortlisted: shortlistedSet.has(startup.id),
       }))
     } else {
-      // Small dataset path: shortlist data already loaded via include
-      startupsWithShortlist = startups.map((startup: any) => ({
+      startupsWithShortlist = startups.map((startup) => ({
         ...startup,
-        shortlisted: userId ? (startup.shortlistedBy?.length > 0) : false,
-        shortlistedBy: undefined, // Remove the relation data, only keep the boolean
+        shortlisted: false,
       }))
     }
 

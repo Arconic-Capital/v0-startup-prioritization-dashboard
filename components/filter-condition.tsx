@@ -110,22 +110,28 @@ export function FilterCondition({
 
       {/* Value Input(s) */}
       {needsValue && (
-        <div className="flex gap-2">
-          <Input
-            type={isNumberField ? "number" : "text"}
-            placeholder={needsSecondValue ? "Min value..." : "Enter value..."}
-            value={condition.value}
-            onChange={(e) => onChange({ ...condition, value: e.target.value })}
-            className="h-8 text-xs"
-          />
-          {needsSecondValue && (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
             <Input
-              type="number"
-              placeholder="Max value..."
-              value={condition.value2 || ""}
-              onChange={(e) => onChange({ ...condition, value2: e.target.value })}
+              type={isNumberField ? "number" : "text"}
+              placeholder={needsSecondValue ? "Min value..." : "Enter value..."}
+              value={condition.value}
+              onChange={(e) => onChange({ ...condition, value: e.target.value })}
               className="h-8 text-xs"
             />
+            {needsSecondValue && (
+              <Input
+                type="number"
+                placeholder="Max value..."
+                value={condition.value2 || ""}
+                onChange={(e) => onChange({ ...condition, value2: e.target.value })}
+                className="h-8 text-xs"
+              />
+            )}
+          </div>
+          {/* Validation warning for "between" operator when second value is missing */}
+          {needsSecondValue && condition.value && !condition.value2 && (
+            <p className="text-xs text-amber-600">Max value required for range filter</p>
           )}
         </div>
       )}

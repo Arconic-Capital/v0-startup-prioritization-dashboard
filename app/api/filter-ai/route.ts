@@ -44,6 +44,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Query is required" }, { status: 400 })
     }
 
+    // Validate query - check for empty string and max length
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) {
+      return NextResponse.json({ error: "Query cannot be empty" }, { status: 400 })
+    }
+    if (trimmedQuery.length > 500) {
+      return NextResponse.json({ error: "Query is too long (max 500 characters)" }, { status: 400 })
+    }
+
     console.log("[Filter AI] Processing query:", query)
 
     const systemPrompt = `You are an AI assistant that converts natural language queries into structured filter conditions for a startup database.
@@ -110,22 +119,30 @@ Respond ONLY with the JSON array, no explanation or markdown.`
 
       const parsed = JSON.parse(cleanedText)
 
-      // Validate and transform to our format
-      conditions = parsed.map((c: any, index: number) => ({
-        id: `ai-${index}`,
-        field: c.field as FilterField,
-        operator: c.operator as FilterOperator,
-        value: String(c.value),
-        value2: c.value2 ? String(c.value2) : undefined,
-      }))
-
       // Validate fields and operators
       const validFields = AVAILABLE_FIELDS.map((f) => f.field)
       const validOperators = AVAILABLE_OPERATORS.map((o) => o.operator)
 
-      conditions = conditions.filter(
-        (c) => validFields.includes(c.field) && validOperators.includes(c.operator)
-      )
+      // Validate and transform to our format - only include items with valid fields/operators
+      conditions = parsed
+        .filter((c: unknown): c is { field: string; operator: string; value: unknown; value2?: unknown } =>
+          typeof c === "object" &&
+          c !== null &&
+          "field" in c &&
+          "operator" in c &&
+          "value" in c &&
+          typeof (c as { field: unknown }).field === "string" &&
+          typeof (c as { operator: unknown }).operator === "string" &&
+          validFields.includes((c as { field: string }).field) &&
+          validOperators.includes((c as { operator: string }).operator)
+        )
+        .map((c, index: number) => ({
+          id: `ai-${index}`,
+          field: c.field as FilterField,
+          operator: c.operator as FilterOperator,
+          value: String(c.value),
+          value2: c.value2 ? String(c.value2) : undefined,
+        }))
 
       if (conditions.length === 0) {
         return NextResponse.json(

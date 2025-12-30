@@ -7,6 +7,16 @@ const anthropic = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
 })
 
+interface UploadedDocument {
+  id: string
+  fileName: string
+  fileType: string
+  text: string
+  uploadedAt: string
+  characterCount: number
+  wordCount: number
+}
+
 // Checklist items by category for AI analysis context
 const CHECKLIST_ITEMS: Record<string, { key: string; label: string }[]> = {
   mobilisation: [
@@ -83,6 +93,7 @@ export interface AnalysisResult {
   overallRisk: "Low" | "Medium" | "High" | "Critical"
   keyFindings: string[]
   redFlags: string[]
+  documentsAnalyzed: string[]
 }
 
 export async function POST(request: NextRequest) {
@@ -108,10 +119,27 @@ export async function POST(request: NextRequest) {
 
     const legalDiligence = (startup.legalDiligence as any) || {}
     const uploadedDocuments = legalDiligence.uploadedDocuments || {}
-    const document = uploadedDocuments[category]
+    const categoryDocs = uploadedDocuments[category]
 
-    if (!document || !document.text) {
-      return NextResponse.json({ error: "No document found for this category" }, { status: 404 })
+    // Handle both array and legacy single document format
+    let documents: UploadedDocument[] = []
+    if (Array.isArray(categoryDocs)) {
+      documents = categoryDocs
+    } else if (categoryDocs && categoryDocs.text) {
+      // Legacy single document - migrate to array format
+      documents = [{
+        id: categoryDocs.id || `legacy-${Date.now()}`,
+        fileName: categoryDocs.fileName,
+        fileType: categoryDocs.fileType,
+        text: categoryDocs.text,
+        uploadedAt: categoryDocs.uploadedAt,
+        characterCount: categoryDocs.characterCount,
+        wordCount: categoryDocs.wordCount,
+      }]
+    }
+
+    if (documents.length === 0) {
+      return NextResponse.json({ error: "No documents found for this category" }, { status: 404 })
     }
 
     const checklistItems = CHECKLIST_ITEMS[category]
@@ -119,8 +147,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 })
     }
 
-    console.log(`[Legal DD Analysis] Analyzing document for ${startup.name}, category: ${category}`)
-    console.log(`[Legal DD Analysis] Document length: ${document.text.length} characters`)
+    // Combine all documents for analysis
+    const documentNames = documents.map(d => d.fileName)
+    const totalCharacters = documents.reduce((sum, d) => sum + d.characterCount, 0)
+
+    console.log(`[Legal DD Analysis] Analyzing ${documents.length} documents for ${startup.name}, category: ${category}`)
+    console.log(`[Legal DD Analysis] Documents: ${documentNames.join(", ")}`)
+    console.log(`[Legal DD Analysis] Total characters: ${totalCharacters}`)
+
+    // Build combined document text with clear separators
+    let combinedText = ""
+    const maxCharsPerDoc = Math.floor(170000 / documents.length) // Distribute context window
+
+    documents.forEach((doc, index) => {
+      const docText = doc.text.slice(0, maxCharsPerDoc)
+      combinedText += `\n\n========== DOCUMENT ${index + 1}: ${doc.fileName} ==========\n\n${docText}`
+    })
 
     // Build the analysis prompt
     const checklistItemsList = checklistItems
@@ -132,32 +174,32 @@ export async function POST(request: NextRequest) {
 You must be thorough, precise, and flag any potential issues or red flags. Your analysis should help the investment team make informed decisions.
 
 Key principles:
-- Be specific with page/section references when possible
+- Be specific with document names and page/section references when possible
+- Cross-reference information across multiple documents when relevant
 - Flag anything unusual or non-standard
 - Note missing information that should be present
 - Highlight terms that may be unfavorable to investors
-- Identify any potential legal risks or liabilities`
+- Identify any potential legal risks or liabilities
+- Note any inconsistencies between documents`
 
-    const analysisPrompt = `Analyze the following document for the "${category}" due diligence category.
+    const analysisPrompt = `Analyze the following ${documents.length} document(s) for the "${category}" due diligence category.
 
-DOCUMENT CONTENT:
----
-${document.text.slice(0, 180000)}
----
+DOCUMENTS TO ANALYZE:
+${combinedText}
 
 CHECKLIST ITEMS TO ANALYZE:
 ${checklistItemsList}
 
 For each checklist item, provide:
-1. STATUS: One of "Done" (info found and acceptable), "Issue" (found but concerning), "Pending" (needs follow-up), or "Not Found" (not in document)
-2. FINDINGS: What you found related to this item
+1. STATUS: One of "Done" (info found and acceptable), "Issue" (found but concerning), "Pending" (needs follow-up), or "Not Found" (not in documents)
+2. FINDINGS: What you found related to this item (reference specific documents where relevant)
 3. CONCERNS: Any red flags or issues (array, can be empty)
 4. EXTRACTED_DATA: Specific values, dates, percentages, or terms found
 
 Also provide:
-- SUMMARY: 2-3 sentence overview of the document
+- SUMMARY: 2-3 sentence overview of the documents and their key contents
 - OVERALL_RISK: "Low", "Medium", "High", or "Critical"
-- KEY_FINDINGS: Array of 3-5 most important findings
+- KEY_FINDINGS: Array of 3-5 most important findings across all documents
 - RED_FLAGS: Array of any critical issues that need immediate attention
 
 RESPOND IN THIS EXACT JSON FORMAT:
@@ -211,6 +253,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
         overallRisk: parsed.overallRisk || "Medium",
         keyFindings: parsed.keyFindings || [],
         redFlags: parsed.redFlags || [],
+        documentsAnalyzed: documentNames,
         itemAnalysis: (parsed.itemAnalysis || []).map((item: any) => {
           const checklistItem = checklistItems.find(ci => ci.key === item.key)
           return {
@@ -237,7 +280,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
         [category]: {
           ...analysisResult,
           analyzedAt: new Date().toISOString(),
-          documentFileName: document.fileName,
+          documentCount: documents.length,
         },
       },
     }
@@ -250,6 +293,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
     return NextResponse.json({
       analysis: analysisResult,
       analyzedAt: new Date().toISOString(),
+      documentsAnalyzed: documents.length,
     })
   } catch (error) {
     console.error("[Legal DD Analysis] Error:", error)

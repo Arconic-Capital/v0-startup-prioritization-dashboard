@@ -37,6 +37,18 @@ export function PortfolioDialog({
   onCancel,
   isSubmitting,
 }: PortfolioDialogProps) {
+  // Validation
+  const investmentAmount = parseFloat(investmentForm.investmentAmount)
+  const valuation = parseFloat(investmentForm.valuation)
+  const ownership = parseFloat(investmentForm.ownership)
+
+  const isAmountValid = !investmentForm.investmentAmount || (investmentAmount > 0)
+  const isValuationValid = !investmentForm.valuation || (valuation > 0)
+  const isOwnershipValid = !investmentForm.ownership || (ownership >= 0 && ownership <= 100)
+
+  const hasRequiredFields = investmentForm.investmentDate && investmentForm.investmentAmount
+  const isFormValid = hasRequiredFields && isAmountValid && isValuationValid && isOwnershipValid
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -80,14 +92,17 @@ export function PortfolioDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="investmentAmount">Investment Amount ($)</Label>
+                <Label htmlFor="investmentAmount">Investment Amount ($) *</Label>
                 <Input
                   id="investmentAmount"
                   type="number"
+                  min="0"
                   placeholder="e.g., 500000"
                   value={investmentForm.investmentAmount}
                   onChange={(e) => onFormChange({ ...investmentForm, investmentAmount: e.target.value })}
+                  className={!isAmountValid ? "border-red-500" : ""}
                 />
+                {!isAmountValid && <p className="text-xs text-red-500">Must be greater than 0</p>}
               </div>
 
               <div className="space-y-2">
@@ -95,10 +110,13 @@ export function PortfolioDialog({
                 <Input
                   id="valuation"
                   type="number"
+                  min="0"
                   placeholder="e.g., 5000000"
                   value={investmentForm.valuation}
                   onChange={(e) => onFormChange({ ...investmentForm, valuation: e.target.value })}
+                  className={!isValuationValid ? "border-red-500" : ""}
                 />
+                {!isValuationValid && <p className="text-xs text-red-500">Must be greater than 0</p>}
               </div>
 
               <div className="space-y-2">
@@ -107,10 +125,14 @@ export function PortfolioDialog({
                   id="ownership"
                   type="number"
                   step="0.01"
+                  min="0"
+                  max="100"
                   placeholder="e.g., 10"
                   value={investmentForm.ownership}
                   onChange={(e) => onFormChange({ ...investmentForm, ownership: e.target.value })}
+                  className={!isOwnershipValid ? "border-red-500" : ""}
                 />
+                {!isOwnershipValid && <p className="text-xs text-red-500">Must be between 0-100%</p>}
               </div>
             </div>
 
@@ -141,7 +163,7 @@ export function PortfolioDialog({
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button onClick={onSubmit} disabled={isSubmitting}>
+          <Button onClick={onSubmit} disabled={isSubmitting || !isFormValid}>
             {isSubmitting ? "Creating..." : "Add to Portfolio"}
           </Button>
         </DialogFooter>

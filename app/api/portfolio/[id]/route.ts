@@ -95,6 +95,12 @@ export async function PUT(
     // Prepare update data - only include fields that are provided
     const updateData: Record<string, unknown> = {}
 
+    // Validate status enum if provided
+    const validStatuses = ["active", "exited", "written_off"] as const
+    if (body.status && !validStatuses.includes(body.status)) {
+      return NextResponse.json({ error: "Invalid status. Must be one of: active, exited, written_off" }, { status: 400 })
+    }
+
     const allowedFields = [
       "investmentDate",
       "investmentAmount",

@@ -39,6 +39,12 @@ export async function POST(
       return NextResponse.json({ error: "date is required" }, { status: 400 })
     }
 
+    // Validate date format
+    const parsedDate = new Date(date)
+    if (isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+    }
+
     // Verify investment exists
     const investment = await prisma.portfolioInvestment.findUnique({
       where: { id },
@@ -72,7 +78,7 @@ export async function POST(
 
     const kpiData: Record<string, unknown> = {
       portfolioInvestmentId: id,
-      date: new Date(date),
+      date: parsedDate,
     }
 
     for (const field of validKPIFields) {
@@ -86,7 +92,7 @@ export async function POST(
       where: {
         portfolioInvestmentId_date: {
           portfolioInvestmentId: id,
-          date: new Date(date),
+          date: parsedDate,
         },
       },
       update: kpiData,

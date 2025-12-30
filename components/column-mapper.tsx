@@ -161,10 +161,10 @@ export function ColumnMapper({ preview, suggestedMapping, onConfirm, onCancel }:
     }
   }, [preview.headers, preview.sampleRows])
 
-  // Run AI analysis on mount
+  // Run AI analysis on mount and when preview data changes
   useEffect(() => {
     analyzeWithAI()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [analyzeWithAI])
 
   // Update traditional mapping from AI suggestions
   const updateMappingFromAI = (data: LLMAnalyzeResponse) => {

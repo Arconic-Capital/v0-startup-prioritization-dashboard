@@ -10,6 +10,7 @@ export async function getAllStartups(options?: {
   search?: string
   minScore?: number
   maxScore?: number
+  signal?: AbortSignal
 }): Promise<{ startups: Startup[]; pagination?: any }> {
   try {
     const params = new URLSearchParams()
@@ -22,7 +23,9 @@ export async function getAllStartups(options?: {
     if (options?.minScore !== undefined) params.set("minScore", options.minScore.toString())
     if (options?.maxScore !== undefined) params.set("maxScore", options.maxScore.toString())
 
-    const response = await fetch(`/api/startups?${params.toString()}`)
+    const response = await fetch(`/api/startups?${params.toString()}`, {
+      signal: options?.signal,
+    })
 
     if (!response.ok) {
       throw new Error("Failed to fetch startups")

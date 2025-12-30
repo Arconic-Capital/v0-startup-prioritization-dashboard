@@ -53,6 +53,7 @@ import type {
 } from "@/lib/types"
 
 interface UploadedDocument {
+  id: string
   fileName: string
   fileType: string
   uploadedAt: string
@@ -77,7 +78,8 @@ interface AnalysisResult {
   redFlags: string[]
   itemAnalysis: AnalysisItemResult[]
   analyzedAt: string
-  documentFileName: string
+  documentsAnalyzed?: string[]
+  documentCount?: number
 }
 
 interface LegalDiligenceProps {
@@ -346,8 +348,8 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
     return sections
   })
 
-  // Document upload and analysis state
-  const [uploadedDocuments, setUploadedDocuments] = useState<Record<string, UploadedDocument>>({})
+  // Document upload and analysis state (now stores arrays of documents per category)
+  const [uploadedDocuments, setUploadedDocuments] = useState<Record<string, UploadedDocument[]>>({})
   const [analysisResults, setAnalysisResults] = useState<Record<string, AnalysisResult>>({})
   const [uploadingCategory, setUploadingCategory] = useState<string | null>(null)
   const [analyzingCategory, setAnalyzingCategory] = useState<string | null>(null)
@@ -376,7 +378,17 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
       // Load uploaded documents and analysis results
       const anyData = data as any
       if (anyData.uploadedDocuments) {
-        setUploadedDocuments(anyData.uploadedDocuments)
+        // Normalize to array format (handle legacy single document format)
+        const normalized: Record<string, UploadedDocument[]> = {}
+        for (const [cat, docs] of Object.entries(anyData.uploadedDocuments)) {
+          if (Array.isArray(docs)) {
+            normalized[cat] = docs as UploadedDocument[]
+          } else if (docs && typeof docs === 'object') {
+            // Legacy single document - convert to array
+            normalized[cat] = [docs as UploadedDocument]
+          }
+        }
+        setUploadedDocuments(normalized)
       }
       if (anyData.analysisResults) {
         setAnalysisResults(anyData.analysisResults)
@@ -453,7 +465,7 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
     }))
   }
 
-  // File upload handler
+  // File upload handler - appends to existing documents
   const handleFileUpload = async (category: string, file: File) => {
     setUploadingCategory(category)
     try {
@@ -474,19 +486,22 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
 
       const result = await response.json()
 
-      // Update local state
+      // Update local state - append new document to array
+      const newDoc: UploadedDocument = {
+        id: result.document.id,
+        fileName: result.document.fileName,
+        fileType: file.type,
+        uploadedAt: new Date().toISOString(),
+        characterCount: result.document.characterCount,
+        wordCount: result.document.wordCount,
+      }
+
       setUploadedDocuments((prev) => ({
         ...prev,
-        [category]: {
-          fileName: result.fileName,
-          fileType: file.type,
-          uploadedAt: new Date().toISOString(),
-          characterCount: result.characterCount,
-          wordCount: result.wordCount,
-        },
+        [category]: [...(prev[category] || []), newDoc],
       }))
 
-      // Clear any previous analysis for this category
+      // Clear any previous analysis for this category (since docs changed)
       setAnalysisResults((prev) => {
         const updated = { ...prev }
         delete updated[category]
@@ -500,10 +515,14 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
     }
   }
 
-  // Delete uploaded document
-  const handleDeleteDocument = async (category: string) => {
+  // Delete uploaded document (by ID or all in category)
+  const handleDeleteDocument = async (category: string, documentId?: string) => {
     try {
-      const response = await fetch(`/api/legal-dd/upload?startupId=${startupId}&category=${category}`, {
+      const url = documentId
+        ? `/api/legal-dd/upload?startupId=${startupId}&category=${category}&documentId=${documentId}`
+        : `/api/legal-dd/upload?startupId=${startupId}&category=${category}`
+
+      const response = await fetch(url, {
         method: "DELETE",
       })
 
@@ -511,12 +530,28 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
         throw new Error("Failed to delete document")
       }
 
-      setUploadedDocuments((prev) => {
-        const updated = { ...prev }
-        delete updated[category]
-        return updated
-      })
+      if (documentId) {
+        // Remove specific document from array
+        setUploadedDocuments((prev) => {
+          const categoryDocs = prev[category] || []
+          const filtered = categoryDocs.filter(doc => doc.id !== documentId)
+          if (filtered.length === 0) {
+            const updated = { ...prev }
+            delete updated[category]
+            return updated
+          }
+          return { ...prev, [category]: filtered }
+        })
+      } else {
+        // Remove all documents in category
+        setUploadedDocuments((prev) => {
+          const updated = { ...prev }
+          delete updated[category]
+          return updated
+        })
+      }
 
+      // Clear analysis results since docs changed
       setAnalysisResults((prev) => {
         const updated = { ...prev }
         delete updated[category]
@@ -592,7 +627,7 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
           issue: flag,
           severity: "High",
           status: "Open",
-          notes: `Auto-detected from AI analysis of ${analysis.documentFileName}`,
+          notes: `Auto-detected from AI analysis of ${analysis.documentFileName || "document"}`,
           identifiedDate: new Date().toISOString().split("T")[0],
         }
         setFormData((prev) => ({
@@ -796,8 +831,8 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
                         Upload PDF
                       </Button>
 
-                      {/* Analyze button - only show if document uploaded */}
-                      {uploadedDocuments[categoryKey] && (
+                      {/* Analyze button - only show if documents uploaded */}
+                      {uploadedDocuments[categoryKey] && uploadedDocuments[categoryKey].length > 0 && (
                         <Button
                           size="sm"
                           onClick={() => handleAnalyzeDocument(categoryKey)}
@@ -812,7 +847,7 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
                           ) : (
                             <>
                               <Sparkles className="h-4 w-4 mr-1" />
-                              Analyze with AI
+                              Analyze {uploadedDocuments[categoryKey].length} Doc{uploadedDocuments[categoryKey].length > 1 ? 's' : ''}
                             </>
                           )}
                         </Button>
@@ -820,24 +855,43 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
                     </div>
                   </div>
 
-                  {/* Uploaded document info */}
-                  {uploadedDocuments[categoryKey] && (
-                    <div className="flex items-center justify-between p-2 bg-white dark:bg-background rounded border">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-blue-600" />
-                        <span className="text-sm font-medium">{uploadedDocuments[categoryKey].fileName}</span>
-                        <span className="text-xs text-muted-foreground">
-                          ({uploadedDocuments[categoryKey].wordCount.toLocaleString()} words)
+                  {/* Uploaded documents list */}
+                  {uploadedDocuments[categoryKey] && uploadedDocuments[categoryKey].length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-muted-foreground">
+                          {uploadedDocuments[categoryKey].length} document{uploadedDocuments[categoryKey].length > 1 ? 's' : ''} uploaded
                         </span>
+                        {uploadedDocuments[categoryKey].length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteDocument(categoryKey)}
+                            className="text-xs text-red-500 hover:text-red-700"
+                          >
+                            Remove All
+                          </Button>
+                        )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteDocument(categoryKey)}
-                        className="h-6 w-6 p-0"
-                      >
-                        <X className="h-4 w-4 text-red-500" />
-                      </Button>
+                      {uploadedDocuments[categoryKey].map((doc) => (
+                        <div key={doc.id} className="flex items-center justify-between p-2 bg-white dark:bg-background rounded border">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-blue-600" />
+                            <span className="text-sm font-medium">{doc.fileName}</span>
+                            <span className="text-xs text-muted-foreground">
+                              ({doc.wordCount?.toLocaleString() || 0} words)
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteDocument(categoryKey, doc.id)}
+                            className="h-6 w-6 p-0"
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
                   )}
 
@@ -850,7 +904,7 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
                             {analysisResults[categoryKey].overallRisk} Risk
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            Analyzed {new Date(analysisResults[categoryKey].analyzedAt).toLocaleString()}
+                            {analysisResults[categoryKey].documentCount || analysisResults[categoryKey].documentsAnalyzed?.length || 1} doc{(analysisResults[categoryKey].documentCount || 1) > 1 ? 's' : ''} analyzed {new Date(analysisResults[categoryKey].analyzedAt).toLocaleString()}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -949,9 +1003,9 @@ export function LegalDiligenceComponent({ data, onSave, startupId }: LegalDilige
                   )}
 
                   {/* Empty state */}
-                  {!uploadedDocuments[categoryKey] && (
+                  {(!uploadedDocuments[categoryKey] || uploadedDocuments[categoryKey].length === 0) && (
                     <p className="text-sm text-muted-foreground">
-                      Upload a PDF document to analyze it against this category&apos;s checklist items
+                      Upload PDF documents to analyze them against this category&apos;s checklist items. You can upload multiple documents.
                     </p>
                   )}
                 </div>

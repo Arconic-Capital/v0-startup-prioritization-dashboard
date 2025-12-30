@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+export interface UploadedDocument {
+  id: string
+  fileName: string
+  fileType: string
+  text: string
+  uploadedAt: string
+  characterCount: number
+  wordCount: number
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -80,20 +90,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update legalDiligence with the uploaded document
+    // Create new document entry with unique ID
+    const newDocument: UploadedDocument = {
+      id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      fileName,
+      fileType,
+      text: extractedText,
+      uploadedAt: new Date().toISOString(),
+      characterCount: extractedText.length,
+      wordCount: extractedText.split(/\s+/).length,
+    }
+
+    // Update legalDiligence with the uploaded document (append to array)
     const currentData = (startup.legalDiligence as any) || {}
     const currentDocs = currentData.uploadedDocuments || {}
 
+    // Get existing documents for this category (as array) or initialize empty array
+    const categoryDocs: UploadedDocument[] = Array.isArray(currentDocs[category])
+      ? currentDocs[category]
+      : currentDocs[category]
+        ? [currentDocs[category]] // Migrate single doc to array
+        : []
+
+    // Add new document to the array
+    categoryDocs.push(newDocument)
+
     const updatedDocs = {
       ...currentDocs,
-      [category]: {
-        fileName,
-        fileType,
-        text: extractedText,
-        uploadedAt: new Date().toISOString(),
-        characterCount: extractedText.length,
-        wordCount: extractedText.split(/\s+/).length,
-      },
+      [category]: categoryDocs,
     }
 
     const updatedLegalDiligence = {
@@ -106,14 +130,18 @@ export async function POST(request: NextRequest) {
       data: { legalDiligence: updatedLegalDiligence },
     })
 
-    console.log("[Legal DD Upload] Document uploaded successfully:", fileName, "to category:", category)
+    console.log("[Legal DD Upload] Document uploaded successfully:", fileName, "to category:", category, "Total docs:", categoryDocs.length)
 
     return NextResponse.json({
       message: "Document uploaded successfully",
-      fileName,
+      document: {
+        id: newDocument.id,
+        fileName: newDocument.fileName,
+        characterCount: newDocument.characterCount,
+        wordCount: newDocument.wordCount,
+      },
       category,
-      characterCount: extractedText.length,
-      wordCount: extractedText.split(/\s+/).length,
+      totalDocuments: categoryDocs.length,
     }, { status: 200 })
   } catch (error) {
     console.error("[Legal DD Upload] Error:", error)
@@ -149,10 +177,19 @@ export async function GET(request: NextRequest) {
     const uploadedDocuments = legalDiligence.uploadedDocuments || {}
 
     if (category) {
-      return NextResponse.json({ document: uploadedDocuments[category] || null })
+      // Return documents for specific category (ensure it's an array)
+      const docs = uploadedDocuments[category]
+      const docsArray = Array.isArray(docs) ? docs : docs ? [docs] : []
+      return NextResponse.json({ documents: docsArray })
     }
 
-    return NextResponse.json({ documents: uploadedDocuments })
+    // Return all documents, ensuring each category is an array
+    const normalizedDocs: Record<string, UploadedDocument[]> = {}
+    for (const [cat, docs] of Object.entries(uploadedDocuments)) {
+      normalizedDocs[cat] = Array.isArray(docs) ? docs : docs ? [docs as UploadedDocument] : []
+    }
+
+    return NextResponse.json({ documents: normalizedDocs })
   } catch (error) {
     console.error("[Legal DD Upload] GET Error:", error)
     return NextResponse.json({ error: "Failed to retrieve documents" }, { status: 500 })
@@ -165,6 +202,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const startupId = searchParams.get("startupId")
     const category = searchParams.get("category")
+    const documentId = searchParams.get("documentId")
 
     if (!startupId || !category) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
@@ -182,11 +220,32 @@ export async function DELETE(request: NextRequest) {
     const currentData = (startup.legalDiligence as any) || {}
     const currentDocs = { ...(currentData.uploadedDocuments || {}) }
 
-    delete currentDocs[category]
+    if (documentId) {
+      // Delete specific document by ID
+      const categoryDocs = Array.isArray(currentDocs[category])
+        ? currentDocs[category]
+        : currentDocs[category] ? [currentDocs[category]] : []
+
+      const filteredDocs = categoryDocs.filter((doc: UploadedDocument) => doc.id !== documentId)
+
+      if (filteredDocs.length === 0) {
+        delete currentDocs[category]
+      } else {
+        currentDocs[category] = filteredDocs
+      }
+    } else {
+      // Delete all documents in category
+      delete currentDocs[category]
+    }
+
+    // Also clear analysis results for this category since documents changed
+    const currentAnalysis = { ...(currentData.analysisResults || {}) }
+    delete currentAnalysis[category]
 
     const updatedLegalDiligence = {
       ...currentData,
       uploadedDocuments: currentDocs,
+      analysisResults: currentAnalysis,
     }
 
     await prisma.startup.update({

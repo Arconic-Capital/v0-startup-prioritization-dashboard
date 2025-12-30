@@ -298,7 +298,7 @@ export function InvestmentDecisionComponent({
         <div className="space-y-4">
           {decision.votes.map((vote, index) => (
             <div
-              key={index}
+              key={`${vote.name}-${vote.timestamp}`}
               className="border rounded-lg p-4 bg-muted/30"
             >
               <div className="flex items-center justify-between mb-3">
@@ -359,9 +359,15 @@ export function InvestmentDecisionComponent({
               placeholder="Add IC member name..."
               value={newVoterName}
               onChange={(e) => setNewVoterName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addVote()}
+              onKeyDown={(e) => e.key === "Enter" && newVoterName.trim() && addVote()}
+              className={!newVoterName.trim() ? "" : "border-green-300"}
             />
-            <Button onClick={addVote} variant="outline">
+            <Button
+              onClick={addVote}
+              variant="outline"
+              disabled={!newVoterName.trim()}
+              title={!newVoterName.trim() ? "Enter a name first" : "Add voter"}
+            >
               <Plus className="h-4 w-4 mr-1" />
               Add Voter
             </Button>

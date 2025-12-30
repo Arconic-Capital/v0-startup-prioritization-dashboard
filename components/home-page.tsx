@@ -1,7 +1,14 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import {
+  saveScrollPosition,
+  restoreScrollPosition,
+  saveViewMode,
+  getViewMode,
+  type ViewMode,
+} from "@/lib/scroll-restoration"
 import { StageDetailView } from "@/components/stage-detail-view"
 import {
   DashboardHeader,
@@ -15,8 +22,6 @@ import type { FilterCondition, SavedFilter } from "@/lib/filter-store"
 import { getSavedFilters, applyFilters } from "@/lib/filter-store"
 import { getAllStartups } from "@/lib/startup-storage"
 import { exportAndDownload } from "@/lib/csv-export"
-
-type ViewMode = "kanban" | "table" | "founders-kanban" | "founders-table"
 
 interface InvestmentForm {
   investmentDate: string
@@ -40,6 +45,16 @@ const DEFAULT_INVESTMENT_FORM: InvestmentForm = {
 
 export default function HomePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // Initialize view mode from URL or sessionStorage
+  const getInitialViewMode = (): ViewMode => {
+    const urlView = searchParams.get("view") as ViewMode | null
+    if (urlView && ["kanban", "table", "founders-kanban", "founders-table"].includes(urlView)) {
+      return urlView
+    }
+    return getViewMode() || "kanban"
+  }
 
   // Core state
   const [startups, setStartups] = useState<Startup[]>([])
@@ -47,14 +62,14 @@ export default function HomePage() {
   const [totalCount, setTotalCount] = useState<number>(0)
 
   // UI state
-  const [viewMode, setViewMode] = useState<ViewMode>("kanban")
+  const [viewMode, setViewMode] = useState<ViewMode>(getInitialViewMode)
   const [showUpload, setShowUpload] = useState(false)
   const [viewingStage, setViewingStage] = useState<PipelineStage | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [foundersLoading, setFoundersLoading] = useState(false)
 
   // Filter state
-  const [limit, setLimit] = useState<number>(500)
+  const [limit, setLimit] = useState<number>(50)
   const [searchQuery, setSearchQuery] = useState<string>("")
   const [stageFilter, setStageFilter] = useState<string>("")
   const [founderSearchQuery, setFounderSearchQuery] = useState("")
@@ -65,6 +80,12 @@ export default function HomePage() {
 
   // Shortlist loading state
   const [shortlistLoading, setShortlistLoading] = useState<Set<string>>(new Set())
+
+  // Error states
+  const [portfolioError, setPortfolioError] = useState<string | null>(null)
+
+  // Request tracking to prevent race conditions
+  const startupRequestId = useRef(0)
 
   // Upload state
   const [uploadProgress, setUploadProgress] = useState<{
@@ -85,18 +106,44 @@ export default function HomePage() {
     setSavedFilters(getSavedFilters())
   }, [])
 
+  // Sync view mode to URL and sessionStorage
+  useEffect(() => {
+    const currentView = searchParams.get("view")
+    if (currentView !== viewMode) {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set("view", viewMode)
+      // Use replace to avoid polluting browser history
+      router.replace(`?${params.toString()}`, { scroll: false })
+    }
+    saveViewMode(viewMode)
+  }, [viewMode, searchParams, router])
+
+  // Restore scroll position on mount (after data loads)
+  useEffect(() => {
+    if (!isLoading && startups.length > 0) {
+      const timer = setTimeout(() => {
+        restoreScrollPosition("dashboard")
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [isLoading, startups.length])
+
   // Load portfolio investment IDs on mount
   useEffect(() => {
     async function loadPortfolioIds() {
       try {
+        setPortfolioError(null)
         const response = await fetch("/api/portfolio")
         if (response.ok) {
           const data = await response.json()
           const investments = data.investments || []
           setPortfolioInvestmentIds(investments.map((inv: { startupId: string }) => inv.startupId))
+        } else {
+          setPortfolioError("Failed to load portfolio data")
         }
       } catch (error) {
         console.error("[Portfolio] Error loading portfolio IDs:", error)
+        setPortfolioError("Failed to load portfolio data")
       }
     }
     loadPortfolioIds()
@@ -108,7 +155,7 @@ export default function HomePage() {
     try {
       const params = new URLSearchParams()
       if (search) params.set("search", search)
-      params.set("limit", "500")
+      params.set("limit", "100")
 
       const response = await fetch(`/api/founders?${params.toString()}`)
       if (response.ok) {
@@ -129,8 +176,10 @@ export default function HomePage() {
     }
   }, [viewMode, founderSearchQuery, fetchFounders])
 
-  // Load startups
+  // Load startups with race condition prevention
   useEffect(() => {
+    const currentRequestId = ++startupRequestId.current
+
     async function loadStartups() {
       setIsLoading(true)
       try {
@@ -139,10 +188,16 @@ export default function HomePage() {
           search: searchQuery || undefined,
           pipelineStage: stageFilter || undefined,
         })
-        setStartups(startups)
-        setTotalCount(pagination?.total || 0)
+        // Only update state if this is still the latest request
+        if (currentRequestId === startupRequestId.current) {
+          setStartups(startups)
+          setTotalCount(pagination?.total || 0)
+        }
       } finally {
-        setIsLoading(false)
+        // Only clear loading if this is still the latest request
+        if (currentRequestId === startupRequestId.current) {
+          setIsLoading(false)
+        }
       }
     }
     loadStartups()
@@ -166,6 +221,7 @@ export default function HomePage() {
 
   // Event handlers
   const handleSelectStartup = (startup: Startup) => {
+    saveScrollPosition("dashboard")
     router.push(`/company/${startup.id}`)
   }
 
@@ -386,6 +442,7 @@ export default function HomePage() {
   }
 
   const handleSelectFounder = (founder: Founder) => {
+    saveScrollPosition("dashboard")
     router.push(`/founder/${founder.id}`)
   }
 

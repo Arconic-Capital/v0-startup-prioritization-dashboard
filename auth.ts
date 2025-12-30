@@ -53,7 +53,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
-        token.role = (user as any).role
+        // User object returned from authorize includes role
+        token.role = "role" in user ? (user as { role: string }).role : undefined
       }
       return token
     },

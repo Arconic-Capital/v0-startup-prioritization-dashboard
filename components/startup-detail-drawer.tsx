@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import type { Startup, PipelineStage } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -84,6 +84,7 @@ interface StartupDetailDrawerProps {
       status?: "Open" | "In Progress" | "Resolved" | "Accepted Risk"
     },
   ) => void
+  onDataRefresh?: () => void
 }
 
 export function StartupDetailDrawer({
@@ -100,6 +101,7 @@ export function StartupDetailDrawer({
   onAddThresholdMeeting,
   onAddThresholdIssue,
   onUpdateThresholdIssue,
+  onDataRefresh,
 }: StartupDetailDrawerProps) {
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const [transcript, setTranscript] = useState("")
@@ -151,6 +153,20 @@ export function StartupDetailDrawer({
     competitivePosition: startup?.initialAssessment?.competitivePosition || 5,
     commentary: startup?.initialAssessment?.commentary || "",
   })
+
+  // Sync initialAssessment state when startup prop changes
+  useEffect(() => {
+    if (startup) {
+      setInitialAssessment({
+        marketOpportunity: startup.initialAssessment?.marketOpportunity || 5,
+        teamQuality: startup.initialAssessment?.teamQuality || 5,
+        productInnovation: startup.initialAssessment?.productInnovation || 5,
+        businessModel: startup.initialAssessment?.businessModel || 5,
+        competitivePosition: startup.initialAssessment?.competitivePosition || 5,
+        commentary: startup.initialAssessment?.commentary || "",
+      })
+    }
+  }, [startup?.id])
 
   const [scorecardScores, setScorecardScores] = useState<Record<string, number>>(() => {
     const initialScores: Record<string, number> = {}
@@ -227,8 +243,10 @@ export function StartupDetailDrawer({
       setTranscript("")
       setShowTranscriptInput(false)
 
-      // Refresh the page or update startup data
-      window.location.reload()
+      // Refresh startup data via callback instead of hard page reload
+      if (onDataRefresh) {
+        onDataRefresh()
+      }
     } catch (error) {
       console.error("[Upload] Error uploading transcript:", error)
       alert(`Failed to upload transcript: ${error instanceof Error ? error.message : "Unknown error"}`)
@@ -278,8 +296,10 @@ export function StartupDetailDrawer({
       setPitchDeckFile(null)
       setShowPitchDeckInput(false)
 
-      // Refresh the page or update startup data
-      window.location.reload()
+      // Refresh startup data via callback instead of hard page reload
+      if (onDataRefresh) {
+        onDataRefresh()
+      }
     } catch (error) {
       console.error("[Upload] Error uploading pitch deck:", error)
       alert(`Failed to upload pitch deck: ${error instanceof Error ? error.message : "Unknown error"}`)

@@ -117,7 +117,9 @@ If no genuine risks are identified, return: {"issues": []}`
       ],
     })
 
-    const responseText = completion.content[0]?.type === "text" ? completion.content[0].text.trim() : ""
+    // Safely extract response text with proper null checks
+    const firstContent = completion.content?.[0]
+    const responseText = firstContent && firstContent.type === "text" ? firstContent.text.trim() : ""
     if (!responseText) {
       throw new Error("Empty response from Claude Sonnet 4")
     }

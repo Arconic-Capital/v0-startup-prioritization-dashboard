@@ -17,6 +17,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
+    // Validate riskRating enum
+    const validRiskRatings = ["High", "Medium", "Low"] as const
+    if (!validRiskRatings.includes(riskRating)) {
+      return NextResponse.json({ error: "Invalid riskRating. Must be one of: High, Medium, Low" }, { status: 400 })
+    }
+
+    // Validate status enum if provided
+    const validStatuses = ["Open", "In Progress", "Resolved", "Accepted Risk"] as const
+    if (status && !validStatuses.includes(status)) {
+      return NextResponse.json({ error: "Invalid status. Must be one of: Open, In Progress, Resolved, Accepted Risk" }, { status: 400 })
+    }
+
     const thresholdIssue = await prisma.thresholdIssue.create({
       data: {
         startupId,

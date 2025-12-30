@@ -10,7 +10,13 @@ export async function POST(request: NextRequest) {
     const { csvText, mapping } = body as { csvText: string; mapping: ColumnMapping }
 
     if (!csvText || !mapping) {
-      return NextResponse.json({ error: "Missing csvText or mapping" }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: "Missing csvText or mapping",
+          details: !csvText ? "csvText is required" : "mapping is required",
+        },
+        { status: 400 }
+      )
     }
 
     // Parse CSV using existing parser

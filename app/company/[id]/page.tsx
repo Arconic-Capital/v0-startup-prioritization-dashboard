@@ -9,7 +9,9 @@ import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, FileText, ExternalLink, Trash2, Pencil, Loader2, Copy, Check, Mail, MessageSquare, Calendar } from "lucide-react"
+import { FileText, ExternalLink, Trash2, Pencil, Loader2, Copy, Check, Mail, MessageSquare, Calendar } from "lucide-react"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { BackButton } from "@/components/back-button"
 import type { OutreachMessages, OutreachTone } from "@/lib/outreach-generator"
 import { getStartupById } from "@/lib/startup-storage"
 import { InvestmentMemoDialog } from "@/components/investment-memo-dialog"
@@ -1068,10 +1070,15 @@ export default function CompanyPage({ params }: { params: Promise<{ id: string }
       <header className="border-b border-border bg-card sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Button variant="ghost" size="sm" onClick={() => router.push("/")} className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Pipeline
-            </Button>
+            <div className="flex items-center gap-4">
+              <BackButton returnTo="dashboard" />
+              <Breadcrumb
+                items={[
+                  { label: "Pipeline", href: "/" },
+                  { label: startup.name },
+                ]}
+              />
+            </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-lg px-4 py-1">
                 #{startup.rank}

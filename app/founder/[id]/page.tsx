@@ -24,6 +24,8 @@ import {
   Github,
   Twitter,
 } from "lucide-react"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { BackButton } from "@/components/back-button"
 import type { Founder, FounderDB, CustomData, CustomSchema } from "@/lib/types"
 import { parseFoundersFromStartup } from "@/lib/founder-parser"
 import { DynamicDataSection } from "@/components/dynamic-data-section"
@@ -237,10 +239,13 @@ export default function FounderProfilePage({ params }: { params: Promise<{ id: s
         <div className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="sm" onClick={() => router.back()}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
+              <BackButton returnTo="founders" />
+              <Breadcrumb
+                items={[
+                  { label: "Founders", href: "/?view=founders-table" },
+                  { label: founder.name },
+                ]}
+              />
               <Separator orientation="vertical" className="h-6" />
               <div>
                 <h1 className="text-2xl font-semibold flex items-center gap-2">
