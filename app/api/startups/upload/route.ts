@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { parseCSVWithMapping } from "@/lib/csv-parser"
-import type { ColumnMapping } from "@/lib/types"
+import { parseCSVWithAIMappings } from "@/lib/csv-parser"
+import type { ColumnMapping, LLMMappingSuggestion } from "@/lib/types"
 
 // POST /api/startups/upload - Upload CSV and insert startups
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { csvText, mapping } = body as { csvText: string; mapping: ColumnMapping }
+    const { csvText, mapping, aiMappings } = body as {
+      csvText: string
+      mapping: ColumnMapping
+      aiMappings?: LLMMappingSuggestion[]
+    }
 
     if (!csvText || !mapping) {
       return NextResponse.json(
@@ -19,20 +23,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parse CSV using existing parser
-    console.log("[API] Parsing CSV with mapping...")
-    const startups = parseCSVWithMapping(csvText, mapping)
-    console.log(`[API] Parsed ${startups.length} startups from CSV`)
+    // Parse CSV using enhanced parser that handles custom data
+    console.log("[API] Parsing CSV with AI mappings...")
+    const results = parseCSVWithAIMappings(csvText, mapping, aiMappings)
+    console.log(`[API] Parsed ${results.length} startups from CSV`)
 
     // Batch insert in chunks of 500 for performance
     const BATCH_SIZE = 500
     let totalInserted = 0
 
-    for (let i = 0; i < startups.length; i += BATCH_SIZE) {
-      const batch = startups.slice(i, i + BATCH_SIZE)
+    for (let i = 0; i < results.length; i += BATCH_SIZE) {
+      const batch = results.slice(i, i + BATCH_SIZE)
 
-      // Convert startups to Prisma format
-      const prismaData = batch.map((startup) => ({
+      // Convert startups to Prisma format, including custom data
+      const prismaData = batch.map(({ startup, customData, customSchema }) => ({
         id: startup.id,
         name: startup.name,
         sector: startup.sector,
@@ -60,6 +64,9 @@ export async function POST(request: NextRequest) {
         initialAssessment: startup.initialAssessment || null,
         investmentScorecard: startup.investmentScorecard || null,
         documents: startup.documents || null,
+        // Include custom data from unmapped CSV columns
+        customData: Object.keys(customData).length > 0 ? customData : null,
+        customSchema: Object.keys(customSchema).length > 0 ? customSchema : null,
       }))
 
       const result = await prisma.startup.createMany({
@@ -74,9 +81,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         message: `Successfully uploaded ${totalInserted} startups`,
-        total: startups.length,
+        total: results.length,
         inserted: totalInserted,
-        skipped: startups.length - totalInserted,
+        skipped: results.length - totalInserted,
       },
       { status: 201 },
     )

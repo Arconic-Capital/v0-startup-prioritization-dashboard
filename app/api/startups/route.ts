@@ -12,8 +12,9 @@ export async function GET(request: NextRequest) {
     const parsedPage = Number.parseInt(searchParams.get("page") || "1")
     const parsedLimit = Number.parseInt(searchParams.get("limit") || "50")
     // Validate numeric params - use defaults if NaN or invalid
+    // Cap at 1000 to prevent performance issues with large datasets
     const page = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage
-    const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 50 : Math.min(parsedLimit, 10000)
+    const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 50 : Math.min(parsedLimit, 1000)
     const sector = searchParams.get("sector")
     const pipelineStage = searchParams.get("pipelineStage")
     const search = searchParams.get("search")
@@ -73,17 +74,72 @@ export async function GET(request: NextRequest) {
       // legalDiligence, documents, customData - these are loaded only when viewing a specific startup
     }
 
-    // Run count and main query in PARALLEL for better performance
-    const [total, startups] = await Promise.all([
-      prisma.startup.count({ where }),
-      prisma.startup.findMany({
-        where,
-        orderBy: { rank: "asc" },
-        skip,
-        take: limit,
-        select: selectFields,
-      }),
-    ])
+    // Get count first
+    const total = await prisma.startup.count({ where })
+
+    // Use raw SQL for proper pipeline stage priority sorting at database level
+    // Priority: First Meeting (1), IC1 (2), DD (3), IC2 (4), Portfolio (5), Closed (6), Rejected (7), Screening (8)
+    // Build WHERE conditions dynamically
+    const conditions: string[] = []
+    const params: any[] = []
+    let paramIndex = 1
+
+    if (sector) {
+      conditions.push(`sector = $${paramIndex}`)
+      params.push(sector)
+      paramIndex++
+    }
+    if (pipelineStage) {
+      conditions.push(`"pipelineStage" = $${paramIndex}`)
+      params.push(pipelineStage)
+      paramIndex++
+    }
+    if (search) {
+      conditions.push(`(name ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`)
+      params.push(`%${search}%`)
+      paramIndex++
+    }
+    if (minScore !== undefined) {
+      conditions.push(`score >= $${paramIndex}`)
+      params.push(minScore)
+      paramIndex++
+    }
+    if (maxScore !== undefined) {
+      conditions.push(`score <= $${paramIndex}`)
+      params.push(maxScore)
+      paramIndex++
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
+
+    // Add limit and offset to params
+    params.push(limit, skip)
+    const limitParam = paramIndex
+    const offsetParam = paramIndex + 1
+
+    const sqlQuery = `
+      SELECT
+        id, name, sector, stage, country, description, score, rank,
+        "pipelineStage", "aiScores", "companyInfo", "marketInfo"
+      FROM "Startup"
+      ${whereClause}
+      ORDER BY
+        CASE "pipelineStage"
+          WHEN 'First Meeting' THEN 1
+          WHEN 'IC1' THEN 2
+          WHEN 'DD' THEN 3
+          WHEN 'IC2' THEN 4
+          WHEN 'Portfolio' THEN 5
+          WHEN 'Closed' THEN 6
+          WHEN 'Rejected' THEN 7
+          WHEN 'Screening' THEN 8
+          ELSE 9
+        END,
+        rank ASC
+      LIMIT $${limitParam} OFFSET $${offsetParam}
+    `
+
+    const startups = await prisma.$queryRawUnsafe<any[]>(sqlQuery, ...params)
 
     // Get shortlist data in a separate efficient query
     let startupsWithShortlist

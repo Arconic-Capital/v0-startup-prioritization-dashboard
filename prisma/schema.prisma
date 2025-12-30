@@ -113,6 +113,9 @@ model Startup {
   @@index([userId])
   @@index([sector, rank])
   @@index([pipelineStage, rank])
+  @@index([name])               // For search queries
+  @@index([createdAt])          // For cursor-based pagination
+  @@index([userId, rank])       // For user-filtered sorted queries
 }
 
 model ThresholdIssue {

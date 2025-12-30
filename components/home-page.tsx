@@ -479,7 +479,7 @@ export default function HomePage() {
 
   const handleSwitchToTableView = () => {
     setViewMode("table")
-    setLimit(5000)
+    // Keep current limit - don't auto-load massive datasets
     setStageFilter("")
     setShowFilterPanel(true)
   }

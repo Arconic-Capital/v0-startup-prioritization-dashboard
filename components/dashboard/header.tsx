@@ -65,8 +65,6 @@ export function DashboardHeader({
                   <option value={200}>200</option>
                   <option value={500}>500</option>
                   <option value={1000}>1,000</option>
-                  <option value={5000}>5,000</option>
-                  <option value={999999}>All</option>
                 </select>
               </div>
             </div>

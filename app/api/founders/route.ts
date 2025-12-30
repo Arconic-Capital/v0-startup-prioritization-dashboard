@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
           }
         } : undefined,
         orderBy: { name: 'asc' },
+        take: 500, // Limit to prevent loading too many at once
       })
 
       // Mark as database source
@@ -59,8 +60,18 @@ export async function GET(request: NextRequest) {
     }
 
     // Get legacy founders (parsed from JSON)
+    // Limit to 500 startups max to prevent performance issues with 10k+ companies
     if (source === "all" || source === "legacy") {
+      // Apply search filter at database level for better performance
+      const startupWhere = search ? {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { sector: { contains: search, mode: 'insensitive' as const } },
+        ]
+      } : {}
+
       const startups = await prisma.startup.findMany({
+        where: startupWhere,
         select: {
           id: true,
           name: true,
@@ -73,11 +84,12 @@ export async function GET(request: NextRequest) {
           teamInfo: true,
         },
         orderBy: { rank: "asc" },
+        take: 500, // Limit to prevent loading entire database
       })
 
       let legacyFounders = parseFoundersFromStartups(startups)
 
-      // Apply search filter
+      // Apply additional search filter on parsed founders
       if (search) {
         legacyFounders = legacyFounders.filter(f =>
           f.name.toLowerCase().includes(search) ||
